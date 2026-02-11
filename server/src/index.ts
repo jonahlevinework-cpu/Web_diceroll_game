@@ -32,7 +32,7 @@ const io = new Server(httpServer, {
 app.use(express.json());
 
 // Health check endpoint
-app.get('/health', (req, res) => {
+app.get('/health', (_req, res) => {
     res.json({
         status: 'ok',
         uptime: process.uptime(),
@@ -42,7 +42,7 @@ app.get('/health', (req, res) => {
 });
 
 // Root endpoint
-app.get('/', (req, res) => {
+app.get('/', (_req, res) => {
     res.json({
         name: 'Race to 18 - Multiplayer Dice Game Server',
         version: '1.0.0',

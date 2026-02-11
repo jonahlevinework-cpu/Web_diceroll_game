@@ -2,46 +2,52 @@
  * Socket.IO event handlers for game communication
  */
 
+import { Server, Socket } from 'socket.io';
 import { v4 as uuidv4 } from 'uuid';
-import { CLIENT_MESSAGES, SERVER_MESSAGES, createMessage } from './messageTypes.js';
+import { ClientMessageType, ServerMessageType, createMessage } from './messageTypes.js';
 import GameRoom from '../game/GameRoom.js';
 import Player from '../game/Player.js';
 import logger from '../utils/logger.js';
 
+// Extend Socket type to include custom properties
+interface CustomSocket extends Socket {
+    roomId?: string;
+    playerId?: string;
+}
+
 // In-memory storage for active game rooms
-const rooms = new Map();
+const rooms = new Map<string, GameRoom>();
 
 /**
  * Initialize Socket.IO handlers
- * @param {Server} io - Socket.IO server instance
  */
-export function initializeSocketHandlers(io) {
-    io.on('connection', (socket) => {
+export function initializeSocketHandlers(io: Server): void {
+    io.on('connection', (socket: CustomSocket) => {
         logger.info(`Client connected: ${socket.id}`);
 
         // Handle room creation
-        socket.on(CLIENT_MESSAGES.CREATE_ROOM, (data) => {
+        socket.on(ClientMessageType.CREATE_ROOM, (data: { playerName: string }) => {
             handleCreateRoom(io, socket, data);
         });
 
         // Handle joining a room
-        socket.on(CLIENT_MESSAGES.JOIN_ROOM, (data) => {
+        socket.on(ClientMessageType.JOIN_ROOM, (data: { roomId: string; playerName: string }) => {
             handleJoinRoom(io, socket, data);
         });
 
         // Handle dice roll
-        socket.on(CLIENT_MESSAGES.ROLL_DICE, (data) => {
-            handleRollDice(io, socket, data);
+        socket.on(ClientMessageType.ROLL_DICE, () => {
+            handleRollDice(io, socket);
         });
 
         // Handle hold action
-        socket.on(CLIENT_MESSAGES.HOLD, (data) => {
-            handleHold(io, socket, data);
+        socket.on(ClientMessageType.HOLD, () => {
+            handleHold(io, socket);
         });
 
         // Handle new game request
-        socket.on(CLIENT_MESSAGES.NEW_GAME, (data) => {
-            handleNewGame(io, socket, data);
+        socket.on(ClientMessageType.NEW_GAME, () => {
+            handleNewGame(io, socket);
         });
 
         // Handle disconnect
@@ -59,12 +65,12 @@ export function initializeSocketHandlers(io) {
 /**
  * Handle room creation
  */
-function handleCreateRoom(io, socket, data) {
+function handleCreateRoom(io: Server, socket: CustomSocket, data: { playerName: string }): void {
     try {
         const { playerName } = data;
 
         if (!playerName || playerName.trim() === '') {
-            socket.emit(SERVER_MESSAGES.ERROR, createMessage(SERVER_MESSAGES.ERROR, {
+            socket.emit(ServerMessageType.ERROR, createMessage(ServerMessageType.ERROR, {
                 message: 'Player name is required'
             }));
             return;
@@ -74,7 +80,7 @@ function handleCreateRoom(io, socket, data) {
         const playerId = uuidv4();
         const player = new Player(playerId, playerName, socket.id);
 
-        const maxPlayers = parseInt(process.env.MAX_PLAYERS_PER_ROOM) || 4;
+        const maxPlayers = parseInt(process.env.MAX_PLAYERS_PER_ROOM || '4');
         const room = new GameRoom(roomId, io, maxPlayers);
         room.addPlayer(player);
 
@@ -87,7 +93,7 @@ function handleCreateRoom(io, socket, data) {
 
         logger.info(`Room created: ${roomId} by ${playerName}`);
 
-        socket.emit(SERVER_MESSAGES.ROOM_CREATED, createMessage(SERVER_MESSAGES.ROOM_CREATED, {
+        socket.emit(ServerMessageType.ROOM_CREATED, createMessage(ServerMessageType.ROOM_CREATED, {
             roomId,
             playerId,
             roomState: room.getState()
@@ -95,7 +101,7 @@ function handleCreateRoom(io, socket, data) {
 
     } catch (error) {
         logger.error('Error creating room:', error);
-        socket.emit(SERVER_MESSAGES.ERROR, createMessage(SERVER_MESSAGES.ERROR, {
+        socket.emit(ServerMessageType.ERROR, createMessage(ServerMessageType.ERROR, {
             message: 'Failed to create room'
         }));
     }
@@ -104,12 +110,12 @@ function handleCreateRoom(io, socket, data) {
 /**
  * Handle joining a room
  */
-function handleJoinRoom(io, socket, data) {
+function handleJoinRoom(_io: Server, socket: CustomSocket, data: { roomId: string; playerName: string }): void {
     try {
         const { roomId, playerName } = data;
 
         if (!roomId || !playerName) {
-            socket.emit(SERVER_MESSAGES.ERROR, createMessage(SERVER_MESSAGES.ERROR, {
+            socket.emit(ServerMessageType.ERROR, createMessage(ServerMessageType.ERROR, {
                 message: 'Room ID and player name are required'
             }));
             return;
@@ -117,7 +123,7 @@ function handleJoinRoom(io, socket, data) {
 
         const room = rooms.get(roomId);
         if (!room) {
-            socket.emit(SERVER_MESSAGES.ERROR, createMessage(SERVER_MESSAGES.ERROR, {
+            socket.emit(ServerMessageType.ERROR, createMessage(ServerMessageType.ERROR, {
                 message: 'Room not found'
             }));
             return;
@@ -128,7 +134,7 @@ function handleJoinRoom(io, socket, data) {
 
         const success = room.addPlayer(player);
         if (!success) {
-            socket.emit(SERVER_MESSAGES.ERROR, createMessage(SERVER_MESSAGES.ERROR, {
+            socket.emit(ServerMessageType.ERROR, createMessage(ServerMessageType.ERROR, {
                 message: 'Room is full or player already exists'
             }));
             return;
@@ -141,20 +147,20 @@ function handleJoinRoom(io, socket, data) {
         logger.info(`Player ${playerName} joined room ${roomId}`);
 
         // Notify the joining player
-        socket.emit(SERVER_MESSAGES.PLAYER_JOINED, createMessage(SERVER_MESSAGES.PLAYER_JOINED, {
+        socket.emit(ServerMessageType.PLAYER_JOINED, createMessage(ServerMessageType.PLAYER_JOINED, {
             playerId,
             roomState: room.getState()
         }));
 
         // Notify all other players in the room
-        socket.to(roomId).emit(SERVER_MESSAGES.GAME_STATE_UPDATE, createMessage(SERVER_MESSAGES.GAME_STATE_UPDATE, {
+        socket.to(roomId).emit(ServerMessageType.GAME_STATE_UPDATE, createMessage(ServerMessageType.GAME_STATE_UPDATE, {
             roomState: room.getState(),
             message: `${playerName} joined the game`
         }));
 
     } catch (error) {
         logger.error('Error joining room:', error);
-        socket.emit(SERVER_MESSAGES.ERROR, createMessage(SERVER_MESSAGES.ERROR, {
+        socket.emit(ServerMessageType.ERROR, createMessage(ServerMessageType.ERROR, {
             message: 'Failed to join room'
         }));
     }
@@ -163,13 +169,12 @@ function handleJoinRoom(io, socket, data) {
 /**
  * Handle dice roll
  */
-function handleRollDice(io, socket, data) {
+function handleRollDice(_io: Server, socket: CustomSocket): void {
     try {
-        const { roomId } = socket;
-        const { playerId } = socket;
+        const { roomId, playerId } = socket;
 
         if (!roomId || !playerId) {
-            socket.emit(SERVER_MESSAGES.ERROR, createMessage(SERVER_MESSAGES.ERROR, {
+            socket.emit(ServerMessageType.ERROR, createMessage(ServerMessageType.ERROR, {
                 message: 'Not in a room'
             }));
             return;
@@ -177,7 +182,7 @@ function handleRollDice(io, socket, data) {
 
         const room = rooms.get(roomId);
         if (!room) {
-            socket.emit(SERVER_MESSAGES.ERROR, createMessage(SERVER_MESSAGES.ERROR, {
+            socket.emit(ServerMessageType.ERROR, createMessage(ServerMessageType.ERROR, {
                 message: 'Room not found'
             }));
             return;
@@ -185,7 +190,7 @@ function handleRollDice(io, socket, data) {
 
         const currentPlayer = room.getCurrentPlayer();
         if (!currentPlayer || currentPlayer.id !== playerId) {
-            socket.emit(SERVER_MESSAGES.ERROR, createMessage(SERVER_MESSAGES.ERROR, {
+            socket.emit(ServerMessageType.ERROR, createMessage(ServerMessageType.ERROR, {
                 message: 'Not your turn'
             }));
             return;
@@ -198,7 +203,7 @@ function handleRollDice(io, socket, data) {
         logger.debug(`Player ${currentPlayer.name} rolled ${roll} in room ${roomId}`);
 
         // Broadcast the roll result to all players
-        room.broadcast(SERVER_MESSAGES.DICE_ROLLED, createMessage(SERVER_MESSAGES.DICE_ROLLED, {
+        room.broadcast(ServerMessageType.DICE_ROLLED, createMessage(ServerMessageType.DICE_ROLLED, {
             playerId: currentPlayer.id,
             playerName: currentPlayer.name,
             roll,
@@ -210,7 +215,7 @@ function handleRollDice(io, socket, data) {
         // Check if game is over
         if (room.gameState.checkGameOver(room.players)) {
             const winner = room.players.find(p => p.id === room.gameState.winner);
-            room.broadcast(SERVER_MESSAGES.GAME_OVER, createMessage(SERVER_MESSAGES.GAME_OVER, {
+            room.broadcast(ServerMessageType.GAME_OVER, createMessage(ServerMessageType.GAME_OVER, {
                 winner: winner ? winner.toJSON() : null,
                 roomState: room.getState(),
                 message: winner ? `${winner.name} wins!` : 'Game over - everyone busted!'
@@ -220,7 +225,7 @@ function handleRollDice(io, socket, data) {
             room.nextTurn();
             const nextPlayer = room.getCurrentPlayer();
 
-            room.broadcast(SERVER_MESSAGES.TURN_CHANGED, createMessage(SERVER_MESSAGES.TURN_CHANGED, {
+            room.broadcast(ServerMessageType.TURN_CHANGED, createMessage(ServerMessageType.TURN_CHANGED, {
                 currentTurn: nextPlayer?.id || null,
                 roomState: room.getState()
             }));
@@ -228,7 +233,7 @@ function handleRollDice(io, socket, data) {
 
     } catch (error) {
         logger.error('Error rolling dice:', error);
-        socket.emit(SERVER_MESSAGES.ERROR, createMessage(SERVER_MESSAGES.ERROR, {
+        socket.emit(ServerMessageType.ERROR, createMessage(ServerMessageType.ERROR, {
             message: 'Failed to roll dice'
         }));
     }
@@ -237,13 +242,12 @@ function handleRollDice(io, socket, data) {
 /**
  * Handle hold action
  */
-function handleHold(io, socket, data) {
+function handleHold(_io: Server, socket: CustomSocket): void {
     try {
-        const { roomId } = socket;
-        const { playerId } = socket;
+        const { roomId, playerId } = socket;
 
         if (!roomId || !playerId) {
-            socket.emit(SERVER_MESSAGES.ERROR, createMessage(SERVER_MESSAGES.ERROR, {
+            socket.emit(ServerMessageType.ERROR, createMessage(ServerMessageType.ERROR, {
                 message: 'Not in a room'
             }));
             return;
@@ -251,7 +255,7 @@ function handleHold(io, socket, data) {
 
         const room = rooms.get(roomId);
         if (!room) {
-            socket.emit(SERVER_MESSAGES.ERROR, createMessage(SERVER_MESSAGES.ERROR, {
+            socket.emit(ServerMessageType.ERROR, createMessage(ServerMessageType.ERROR, {
                 message: 'Room not found'
             }));
             return;
@@ -259,7 +263,7 @@ function handleHold(io, socket, data) {
 
         const currentPlayer = room.getCurrentPlayer();
         if (!currentPlayer || currentPlayer.id !== playerId) {
-            socket.emit(SERVER_MESSAGES.ERROR, createMessage(SERVER_MESSAGES.ERROR, {
+            socket.emit(ServerMessageType.ERROR, createMessage(ServerMessageType.ERROR, {
                 message: 'Not your turn'
             }));
             return;
@@ -270,7 +274,7 @@ function handleHold(io, socket, data) {
         logger.debug(`Player ${currentPlayer.name} held at ${currentPlayer.score} in room ${roomId}`);
 
         // Broadcast hold action
-        room.broadcast(SERVER_MESSAGES.GAME_STATE_UPDATE, createMessage(SERVER_MESSAGES.GAME_STATE_UPDATE, {
+        room.broadcast(ServerMessageType.GAME_STATE_UPDATE, createMessage(ServerMessageType.GAME_STATE_UPDATE, {
             roomState: room.getState(),
             message: result.message
         }));
@@ -278,7 +282,7 @@ function handleHold(io, socket, data) {
         // Check if game is over
         if (room.gameState.checkGameOver(room.players)) {
             const winner = room.players.find(p => p.id === room.gameState.winner);
-            room.broadcast(SERVER_MESSAGES.GAME_OVER, createMessage(SERVER_MESSAGES.GAME_OVER, {
+            room.broadcast(ServerMessageType.GAME_OVER, createMessage(ServerMessageType.GAME_OVER, {
                 winner: winner ? winner.toJSON() : null,
                 roomState: room.getState(),
                 message: winner ? `${winner.name} wins with ${winner.score}!` : 'Game over!'
@@ -288,7 +292,7 @@ function handleHold(io, socket, data) {
             room.nextTurn();
             const nextPlayer = room.getCurrentPlayer();
 
-            room.broadcast(SERVER_MESSAGES.TURN_CHANGED, createMessage(SERVER_MESSAGES.TURN_CHANGED, {
+            room.broadcast(ServerMessageType.TURN_CHANGED, createMessage(ServerMessageType.TURN_CHANGED, {
                 currentTurn: nextPlayer?.id || null,
                 roomState: room.getState()
             }));
@@ -296,7 +300,7 @@ function handleHold(io, socket, data) {
 
     } catch (error) {
         logger.error('Error handling hold:', error);
-        socket.emit(SERVER_MESSAGES.ERROR, createMessage(SERVER_MESSAGES.ERROR, {
+        socket.emit(ServerMessageType.ERROR, createMessage(ServerMessageType.ERROR, {
             message: 'Failed to hold'
         }));
     }
@@ -305,12 +309,12 @@ function handleHold(io, socket, data) {
 /**
  * Handle new game request
  */
-function handleNewGame(io, socket, data) {
+function handleNewGame(_io: Server, socket: CustomSocket): void {
     try {
         const { roomId } = socket;
 
         if (!roomId) {
-            socket.emit(SERVER_MESSAGES.ERROR, createMessage(SERVER_MESSAGES.ERROR, {
+            socket.emit(ServerMessageType.ERROR, createMessage(ServerMessageType.ERROR, {
                 message: 'Not in a room'
             }));
             return;
@@ -318,7 +322,7 @@ function handleNewGame(io, socket, data) {
 
         const room = rooms.get(roomId);
         if (!room) {
-            socket.emit(SERVER_MESSAGES.ERROR, createMessage(SERVER_MESSAGES.ERROR, {
+            socket.emit(ServerMessageType.ERROR, createMessage(ServerMessageType.ERROR, {
                 message: 'Room not found'
             }));
             return;
@@ -327,14 +331,14 @@ function handleNewGame(io, socket, data) {
         room.resetGame();
         logger.info(`New game started in room ${roomId}`);
 
-        room.broadcast(SERVER_MESSAGES.GAME_STATE_UPDATE, createMessage(SERVER_MESSAGES.GAME_STATE_UPDATE, {
+        room.broadcast(ServerMessageType.GAME_STATE_UPDATE, createMessage(ServerMessageType.GAME_STATE_UPDATE, {
             roomState: room.getState(),
             message: 'New game started!'
         }));
 
     } catch (error) {
         logger.error('Error starting new game:', error);
-        socket.emit(SERVER_MESSAGES.ERROR, createMessage(SERVER_MESSAGES.ERROR, {
+        socket.emit(ServerMessageType.ERROR, createMessage(ServerMessageType.ERROR, {
             message: 'Failed to start new game'
         }));
     }
@@ -343,7 +347,7 @@ function handleNewGame(io, socket, data) {
 /**
  * Handle player disconnect
  */
-function handleDisconnect(io, socket) {
+function handleDisconnect(_io: Server, socket: CustomSocket): void {
     try {
         const { roomId, playerId } = socket;
 
@@ -362,7 +366,7 @@ function handleDisconnect(io, socket) {
             room.removePlayer(playerId);
 
             // Notify remaining players
-            room.broadcast(SERVER_MESSAGES.PLAYER_LEFT, createMessage(SERVER_MESSAGES.PLAYER_LEFT, {
+            room.broadcast(ServerMessageType.PLAYER_LEFT, createMessage(ServerMessageType.PLAYER_LEFT, {
                 playerId,
                 roomState: room.getState(),
                 message: `${player.name} left the game`
@@ -383,7 +387,7 @@ function handleDisconnect(io, socket) {
 /**
  * Clean up empty rooms
  */
-function cleanupEmptyRooms() {
+function cleanupEmptyRooms(): void {
     const now = Date.now();
     const ROOM_TIMEOUT = 30 * 60 * 1000; // 30 minutes
 
@@ -398,6 +402,6 @@ function cleanupEmptyRooms() {
 /**
  * Get active rooms count (for monitoring)
  */
-export function getActiveRoomsCount() {
+export function getActiveRoomsCount(): number {
     return rooms.size;
 }

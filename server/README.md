@@ -1,6 +1,6 @@
 # Race to 18 - Multiplayer Dice Game Server
 
-Backend server for the multiplayer "Race to 18" dice game using Node.js, Express, and Socket.IO.
+Backend server for the multiplayer "Race to 18" dice game using **TypeScript**, Node.js, Express, and Socket.IO.
 
 ## 🚀 Quick Start
 
@@ -17,14 +17,20 @@ pnpm install
 
 ### Running the Server
 
-**Development mode** (with auto-restart):
+**Development mode** (with auto-restart and TypeScript support):
 ```bash
 pnpm run dev
 ```
 
 **Production mode**:
 ```bash
-pnpm start
+pnpm build  # Compile TypeScript to JavaScript
+pnpm start  # Run compiled JavaScript
+```
+
+**Type checking** (without running):
+```bash
+pnpm typecheck
 ```
 
 The server will start on **port 3000** by default.
@@ -310,17 +316,18 @@ MAX_PLAYERS_PER_ROOM=4
 ```
 server/
 ├── src/
-│   ├── index.js              # Main entry point
+│   ├── index.ts              # Main entry point
 │   ├── game/
-│   │   ├── Player.js         # Player data model
-│   │   ├── GameState.js      # Game logic (Race to 18)
-│   │   └── GameRoom.js       # Room management
+│   │   ├── Player.ts         # Player data model
+│   │   ├── GameState.ts      # Game logic (Race to 18)
+│   │   └── GameRoom.ts       # Room management
 │   ├── socket/
-│   │   ├── socketHandler.js  # WebSocket event handlers
-│   │   └── messageTypes.js   # Message protocol definitions
+│   │   ├── socketHandler.ts  # WebSocket event handlers
+│   │   └── messageTypes.ts   # Message protocol definitions
 │   └── utils/
-│       └── logger.js         # Logging utility
+│       └── logger.ts         # Logging utility
 ├── package.json
+├── tsconfig.json             # TypeScript configuration
 └── .env
 ```
 

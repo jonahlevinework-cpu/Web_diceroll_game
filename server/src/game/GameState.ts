@@ -9,7 +9,28 @@
  * - Players can HOLD to keep their current score
  */
 
+import Player from './Player.js';
+
+export type GameStatus = 'playing' | 'bust' | 'perfect' | 'held' | 'error';
+
+export interface ScoreUpdateResult {
+    status: GameStatus;
+    message: string;
+    newScore: number;
+}
+
+export interface HoldResult {
+    status: GameStatus;
+    message: string;
+    finalScore?: number;
+}
+
 export default class GameState {
+    public targetScore: number;
+    public gameStarted: boolean;
+    public gameOver: boolean;
+    public winner: string | null;
+
     constructor() {
         this.targetScore = 18;
         this.gameStarted = false;
@@ -21,17 +42,14 @@ export default class GameState {
      * Generate a random dice roll (1-6)
      * Server-authoritative to prevent cheating
      */
-    rollDice() {
+    rollDice(): number {
         return Math.floor(Math.random() * 6) + 1;
     }
 
     /**
      * Update player score and check win/bust conditions
-     * @param {Player} player - Player object
-     * @param {number} roll - Dice roll result (1-6)
-     * @returns {Object} Result with status and message
      */
-    updateScore(player, roll) {
+    updateScore(player: Player, roll: number): ScoreUpdateResult {
         player.score += roll;
 
         // Check for bust
@@ -66,10 +84,8 @@ export default class GameState {
 
     /**
      * Player holds their current score
-     * @param {Player} player - Player object
-     * @returns {Object} Result with status and message
      */
-    hold(player) {
+    hold(player: Player): HoldResult {
         if (player.status !== 'active') {
             return {
                 status: 'error',
@@ -92,10 +108,8 @@ export default class GameState {
      * Game ends when:
      * - Someone hits 18 (perfect)
      * - All players have busted or held
-     * @param {Array<Player>} players - Array of all players
-     * @returns {boolean}
      */
-    checkGameOver(players) {
+    checkGameOver(players: Player[]): boolean {
         if (this.gameOver) return true;
 
         // Check if all players are done (bust or held)
@@ -112,9 +126,8 @@ export default class GameState {
     /**
      * Determine winner when game ends
      * Winner = highest score without busting
-     * @param {Array<Player>} players - Array of all players
      */
-    determineWinner(players) {
+    determineWinner(players: Player[]): void {
         const validPlayers = players.filter(p => p.status === 'held' || p.status === 'won');
 
         if (validPlayers.length === 0) {
@@ -134,7 +147,7 @@ export default class GameState {
     /**
      * Reset game state for a new round
      */
-    reset() {
+    reset(): void {
         this.gameStarted = false;
         this.gameOver = false;
         this.winner = null;
@@ -143,7 +156,7 @@ export default class GameState {
     /**
      * Start the game
      */
-    start() {
+    start(): void {
         this.gameStarted = true;
         this.gameOver = false;
         this.winner = null;

@@ -3,14 +3,33 @@
  * Handles multiplayer game sessions
  */
 
+import { Server } from 'socket.io';
 import GameState from './GameState.js';
+import Player, { PlayerData } from './Player.js';
 import logger from '../utils/logger.js';
 
+export interface RoomState {
+    roomId: string;
+    players: PlayerData[];
+    currentTurn: string | null;
+    gameStarted: boolean;
+    gameOver: boolean;
+    winner: string | null;
+}
+
 export default class GameRoom {
-    constructor(id, io, maxPlayers = 4) {
+    public id: string;
+    public io: Server;
+    public players: Player[];
+    public gameState: GameState;
+    public currentTurnIndex: number;
+    public maxPlayers: number;
+    public createdAt: number;
+
+    constructor(id: string, io: Server, maxPlayers: number = 4) {
         this.id = id;
-        this.io = io;                    // Socket.IO server instance
-        this.players = [];               // Array of Player objects
+        this.io = io;
+        this.players = [];
         this.gameState = new GameState();
         this.currentTurnIndex = 0;
         this.maxPlayers = maxPlayers;
@@ -19,10 +38,8 @@ export default class GameRoom {
 
     /**
      * Add a player to the room
-     * @param {Player} player - Player to add
-     * @returns {boolean} Success status
      */
-    addPlayer(player) {
+    addPlayer(player: Player): boolean {
         if (this.players.length >= this.maxPlayers) {
             logger.warn(`Room ${this.id} is full`);
             return false;
@@ -47,10 +64,8 @@ export default class GameRoom {
 
     /**
      * Remove a player from the room
-     * @param {string} playerId - Player ID to remove
-     * @returns {boolean} Success status
      */
-    removePlayer(playerId) {
+    removePlayer(playerId: string): boolean {
         const index = this.players.findIndex(p => p.id === playerId);
         if (index === -1) return false;
 
@@ -74,9 +89,8 @@ export default class GameRoom {
 
     /**
      * Get the current player whose turn it is
-     * @returns {Player|null}
      */
-    getCurrentPlayer() {
+    getCurrentPlayer(): Player | null {
         if (this.players.length === 0) return null;
 
         // Skip players who are bust or held
@@ -97,32 +111,28 @@ export default class GameRoom {
     /**
      * Move to the next player's turn
      */
-    nextTurn() {
+    nextTurn(): void {
         this.currentTurnIndex = (this.currentTurnIndex + 1) % this.players.length;
     }
 
     /**
      * Get player by ID
-     * @param {string} playerId
-     * @returns {Player|null}
      */
-    getPlayer(playerId) {
+    getPlayer(playerId: string): Player | null {
         return this.players.find(p => p.id === playerId) || null;
     }
 
     /**
      * Broadcast a message to all players in the room
-     * @param {string} event - Event name
-     * @param {Object} data - Data to send
      */
-    broadcast(event, data) {
+    broadcast(event: string, data: any): void {
         this.io.to(this.id).emit(event, data);
     }
 
     /**
      * Get serializable room state (for sending to clients)
      */
-    getState() {
+    getState(): RoomState {
         return {
             roomId: this.id,
             players: this.players.map(p => p.toJSON()),
@@ -136,7 +146,7 @@ export default class GameRoom {
     /**
      * Reset the game for a new round
      */
-    resetGame() {
+    resetGame(): void {
         this.gameState.reset();
         this.players.forEach(p => p.reset());
         this.currentTurnIndex = 0;
@@ -150,9 +160,8 @@ export default class GameRoom {
 
     /**
      * Check if room is empty
-     * @returns {boolean}
      */
-    isEmpty() {
+    isEmpty(): boolean {
         return this.players.length === 0;
     }
 }
