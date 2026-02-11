@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Race to 18 - Dice Game</title>
+    <style>
+        body {
+            margin: 0;
+            background-color: #0a0a0f;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            color: #c8c8dc;
+            font-family: monospace;
+        }
+
+        canvas {
+            border: 2px solid #222;
+            background-color: #0a0a0f;
+        }
+
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+        }
+
+        button {
+            background-color: #1a1a2e;
+            color: #00ffc8;
+            border: 2px solid #00ffc8;
+            border-radius: 5px;
+            transition: all 0.2s;
+        }
+
+        button:hover {
+            background-color: #00ffc8;
+            color: #0a0a0f;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="ui">
+        <div style="font-size: 20px; font-weight: bold; margin-bottom: 10px;">🎲 Race to 18</div>
+        <div id="score" style="font-size: 24px; color: #00ffc8;">Score: 0</div>
+        <div id="gameStatus" style="font-size: 16px; margin: 10px 0;">Roll to get close to 18!</div>
+        <div id="status" style="font-size: 14px; color: #888;">Ready</div>
+        <div style="margin-top: 15px;">
+            <button id="rollBtn" style="padding: 10px 20px; font-size: 16px; margin-right: 10px; cursor: pointer;">Roll
+                (SPACE)</button>
+            <button id="holdBtn" style="padding: 10px 20px; font-size: 16px; cursor: pointer;">Hold (H)</button>
+        </div>
+        <button id="newGameBtn"
+            style="padding: 10px 20px; font-size: 16px; margin-top: 10px; cursor: pointer; display: none;">New Game
+            (N)</button>
+    </div>
+    <canvas id="gameCanvas" width="900" height="700"></canvas>
+
+    <script>
+        // --- CONFIGURATION ---
+        const WIDTH = 900, HEIGHT = 700, CENTER_X = WIDTH / 2, CENTER_Y = HEIGHT / 2;
+        const GRAVITY = -9.8, RESTITUTION = 0.5, FRICTION = 0.7;
+        const ANGULAR_DAMPING = 0.995, LINEAR_DAMPING = 0.998;
+        const REST_LINEAR_THRESHOLD = 0.1, REST_ANGULAR_THRESHOLD = 0.1, REST_FRAMES_NEEDED = 30;
+        const COLOR_BG = '#0a0a0f', COLOR_CUBE = '#00ffc8', COLOR_WIRE = '#000000';
+
+        // --- MATH ---
+        class Vec3 {
+            constructor(x = 0, y = 0, z = 0) { this.x = x; this.y = y; this.z = z; }
+            add(v) { return new Vec3(this.x + v.x, this.y + v.y, this.z + v.z); }
+            sub(v) { return new Vec3(this.x - v.x, this.y - v.y, this.z - v.z); }
+            mul(s) { return new Vec3(this.x * s, this.y * s, this.z * s); }
+            div(s) { return new Vec3(this.x / s, this.y / s, this.z / s); }
+            dot(v) { return this.x * v.x + this.y * v.y + this.z * v.z; }
+            cross(v) { return new Vec3(this.y * v.z - this.z * v.y, this.z * v.x - this.x * v.z, this.x * v.y - this.y * v.x); }
+            length() { return Math.sqrt(this.x * this.x + this.y * this.y + this.z * this.z); }
+            normalized() { const l = this.length(); return l > 0 ? this.div(l) : new Vec3(0, 0, 0); }
+        }
+
+        class Mat3 {
+            constructor(rows) { this.m = rows || [[1, 0, 0], [0, 1, 0], [0, 0, 1]]; }
+            static identity() { return new Mat3(); }
+            static fromAxisAngle(axis, angle) {
+                const c = Math.cos(angle), s = Math.sin(angle), t = 1 - c;
+                const x = axis.x, y = axis.y, z = axis.z;
+                return new Mat3([[t * x * x + c, t * x * y - s * z, t * x * z + s * y], [t * x * y + s * z, t * y * y + c, t * y * z - s * x], [t * x * z - s * y, t * y * z + s * x, t * z * z + c]]);
+            }
+            mulVec(v) { return new Vec3(this.m[0][0] * v.x + this.m[0][1] * v.y + this.m[0][2] * v.z, this.m[1][0] * v.x + this.m[1][1] * v.y + this.m[1][2] * v.z, this.m[2][0] * v.x + this.m[2][1] * v.y + this.m[2][2] * v.z); }
+            mulMat(other) {
+                let res = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+                for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) for (let k = 0; k < 3; k++) res[i][j] += this.m[i][k] * other.m[k][j];
+                return new Mat3(res);
+            }
+            transpose() { return new Mat3([[this.m[0][0], this.m[1][0], this.m[2][0]], [this.m[0][1], this.m[1][1], this.m[2][1]], [this.m[0][2], this.m[1][2], this.m[2][2]]]); }
+        }
+
+        // --- GEOMETRY ---
+        const D6_VERTICES = [new Vec3(-1, -1, 1), new Vec3(1, -1, 1), new Vec3(1, 1, 1), new Vec3(-1, 1, 1), new Vec3(-1, -1, -1), new Vec3(1, -1, -1), new Vec3(1, 1, -1), new Vec3(-1, 1, -1)];
+        const D6_FACES = [[0, 1, 2, 3], [5, 4, 7, 6], [4, 0, 3, 7], [1, 5, 6, 2], [3, 2, 6, 7], [4, 5, 1, 0]];
+        const FACE_VALUES = { 0: 1, 1: 6, 2: 5, 3: 2, 4: 3, 5: 4 };
+
+        // --- PHYSICS ---
+        class RigidBody {
+            constructor() {
+                this.position = new Vec3(0, 5, 0); this.velocity = new Vec3(0, 0, 0);
+                this.rotation = Mat3.identity(); this.angularVelocity = new Vec3(0, 0, 0);
+                this.mass = 1.0; this.invMass = 1.0; this.size = 0.167;
+                const I = (1 / 6) * this.mass * (this.size * this.size);
+                this.inertia = new Mat3([[I, 0, 0], [0, I, 0], [0, 0, I]]);
+                this.invInertia = new Mat3([[1 / I, 0, 0], [0, 1 / I, 0], [0, 0, 1 / I]]);
+                this.atRest = false; this.restFrames = 0;
+            }
+            getVertices() { return D6_VERTICES.map(v => v.mul(this.size)).map(v => this.rotation.mulVec(v).add(this.position)); }
+            applyImpulse(impulse, contactPoint) {
+                this.velocity = this.velocity.add(impulse.mul(this.invMass));
+                const r = contactPoint.sub(this.position), torque = r.cross(impulse);
+                const invInertiaWorld = this.rotation.mulMat(this.invInertia).mulMat(this.rotation.transpose());
+                this.angularVelocity = this.angularVelocity.add(invInertiaWorld.mulVec(torque));
+            }
+            integrate(dt) {
+                if (this.atRest) return;
+                this.velocity = this.velocity.add(new Vec3(0, GRAVITY * dt, 0)).mul(LINEAR_DAMPING);
+                this.position = this.position.add(this.velocity.mul(dt));
+                this.angularVelocity = this.angularVelocity.mul(ANGULAR_DAMPING);
+                const angle = this.angularVelocity.length() * dt;
+                if (angle > 0.0001) this.rotation = Mat3.fromAxisAngle(this.angularVelocity.normalized(), angle).mulMat(this.rotation);
+                if (this.velocity.length() < REST_LINEAR_THRESHOLD && this.angularVelocity.length() < REST_ANGULAR_THRESHOLD && this.position.y < this.size * 1.5) {
+                    this.restFrames++;
+                    if (this.restFrames >= REST_FRAMES_NEEDED) { this.atRest = true; this.velocity = new Vec3(0, 0, 0); this.angularVelocity = new Vec3(0, 0, 0); }
+                } else { this.restFrames = 0; this.atRest = false; }
+            }
+        }
+
+        let body = new RigidBody();
+        let gameState = { score: 0, gameOver: false, canRoll: true, waitingForResult: false };
+
+        function throwDice() {
+            if (!gameState.canRoll || gameState.gameOver) return;
+            gameState.waitingForResult = true; gameState.canRoll = false;
+            body.position = new Vec3(0, 5, 0);
+            body.velocity = new Vec3((Math.random() - 0.5) * 6, Math.random() * 2 + 1, (Math.random() - 0.5) * 6);
+            body.angularVelocity = new Vec3((Math.random() - 0.5) * 30, (Math.random() - 0.5) * 30, (Math.random() - 0.5) * 30);
+            body.rotation = Mat3.identity(); body.atRest = false; body.restFrames = 0;
+        }
+
+        function getTopFace() {
+            const up = new Vec3(0, 1, 0); let maxDot = -Infinity, topFaceIndex = 0;
+            for (let i = 0; i < D6_FACES.length; i++) {
+                const f = D6_FACES[i], v0 = D6_VERTICES[f[0]], v1 = D6_VERTICES[f[1]], v2 = D6_VERTICES[f[2]];
+                const normal = v1.sub(v0).cross(v2.sub(v0)).normalized();
+                const dot = body.rotation.mulVec(normal).dot(up);
+                if (dot > maxDot) { maxDot = dot; topFaceIndex = i; }
+            }
+            return FACE_VALUES[topFaceIndex];
+        }
+
+        function updateScore(roll) {
+            gameState.score += roll;
+            document.getElementById('score').innerText = `Score: ${gameState.score}`;
+            const statusEl = document.getElementById('gameStatus');
+            if (gameState.score > 18) {
+                gameState.gameOver = true;
+                statusEl.innerText = `BUST! You went over 18. Final: ${gameState.score}`;
+                statusEl.style.color = '#ff4444';
+                document.getElementById('newGameBtn').style.display = 'block';
+            } else if (gameState.score === 18) {
+                gameState.gameOver = true;
+                statusEl.innerText = `PERFECT! You hit exactly 18! 🎉`;
+                statusEl.style.color = '#44ff44';
+                document.getElementById('newGameBtn').style.display = 'block';
+            } else {
+                statusEl.innerText = `You rolled a ${roll}! (Total: ${gameState.score})`;
+                statusEl.style.color = '#c8c8dc';
+                gameState.canRoll = true;
+            }
+        }
+
+        function hold() {
+            if (gameState.gameOver || gameState.waitingForResult) return;
+            gameState.gameOver = true;
+            const statusEl = document.getElementById('gameStatus');
+            if (gameState.score === 18) {
+                statusEl.innerText = `PERFECT 18! 🎉`;
+                statusEl.style.color = '#44ff44';
+            } else {
+                const distance = 18 - gameState.score;
+                statusEl.innerText = `You held at ${gameState.score}. (${distance} away from 18)`;
+                statusEl.style.color = '#ffaa44';
+            }
+            document.getElementById('newGameBtn').style.display = 'block';
+        }
+
+        function newGame() {
+            gameState = { score: 0, gameOver: false, canRoll: true, waitingForResult: false };
+            document.getElementById('score').innerText = 'Score: 0';
+            const statusEl = document.getElementById('gameStatus');
+            statusEl.innerText = 'Roll to get close to 18!';
+            statusEl.style.color = '#c8c8dc';
+            document.getElementById('newGameBtn').style.display = 'none';
+        }
+
+        // --- COLLISION ---
+        function detectCollisions() {
+            const cols = [];
+            for (let v of body.getVertices()) if (v.y < 0) cols.push({ point: v, normal: new Vec3(0, 1, 0), penetration: -v.y });
+            return cols;
+        }
+
+        function resolveCollision(col) {
+            const { point, normal, penetration } = col;
+            body.position = body.position.add(normal.mul(penetration));
+            const r = point.sub(body.position), pointVel = body.velocity.add(body.angularVelocity.cross(r));
+            const velNormal = pointVel.dot(normal);
+            if (velNormal < 0) {
+                const rCrossN = r.cross(normal);
+                const invInertiaWorld = body.rotation.mulMat(body.invInertia).mulMat(body.rotation.transpose());
+                const angularTerm = invInertiaWorld.mulVec(rCrossN).cross(r).dot(normal);
+                const impulseMag = -(1 + RESTITUTION) * velNormal / (body.invMass + angularTerm);
+                body.applyImpulse(normal.mul(impulseMag), point);
+                const newPointVel = body.velocity.add(body.angularVelocity.cross(r));
+                const velTangent = newPointVel.sub(normal.mul(newPointVel.dot(normal)));
+                if (velTangent.length() > 0.001) {
+                    const frictionMag = Math.min(FRICTION * impulseMag, velTangent.length() * body.mass);
+                    body.applyImpulse(velTangent.normalized().mul(-frictionMag), point);
+                }
+            }
+        }
+
+        // --- RENDERER ---
+        const canvas = document.getElementById('gameCanvas'), ctx = canvas.getContext('2d');
+
+        function project(x, y, z) {
+            const angleX = -25 * Math.PI / 180, c = Math.cos(angleX), s = Math.sin(angleX);
+            const yCam = y * c - z * s, zCam = y * s + z * c, scale = 1000, dist = 5;
+            if (dist + zCam <= 0.1) return null;
+            const factor = scale / (dist + zCam);
+            return { px: x * factor + CENTER_X, py: -yCam * factor + CENTER_Y, z: zCam };
+        }
+
+        function drawPips(verts, faceIndex) {
+            const value = FACE_VALUES[faceIndex] || 1;
+            let dots = [];
+            if (value === 1) dots = [[0.5, 0.5]];
+            else if (value === 2) dots = [[0.2, 0.2], [0.8, 0.8]];
+            else if (value === 3) dots = [[0.2, 0.2], [0.5, 0.5], [0.8, 0.8]];
+            else if (value === 4) dots = [[0.2, 0.2], [0.8, 0.2], [0.2, 0.8], [0.8, 0.8]];
+            else if (value === 5) dots = [[0.2, 0.2], [0.8, 0.2], [0.5, 0.5], [0.2, 0.8], [0.8, 0.8]];
+            else if (value === 6) dots = [[0.25, 0.2], [0.25, 0.5], [0.25, 0.8], [0.75, 0.2], [0.75, 0.5], [0.75, 0.8]];
+            const dx = verts[1].px - verts[0].px, dy = verts[1].py - verts[0].py;
+            const radius = Math.max(3, Math.sqrt(dx * dx + dy * dy) * 0.15);
+            ctx.fillStyle = '#1e3c78';
+            for (let [u, v] of dots) {
+                const v0 = verts[0], v1 = verts[1], v2 = verts[2], v3 = verts[3];
+                const c1 = (1 - u) * (1 - v), c2 = u * (1 - v), c3 = u * v, c4 = (1 - u) * v;
+                const px = v0.px * c1 + v1.px * c2 + v2.px * c3 + v3.px * c4;
+                const py = v0.py * c1 + v1.py * c2 + v2.py * c3 + v3.py * c4;
+                ctx.beginPath(); ctx.arc(px, py, radius, 0, Math.PI * 2); ctx.fill();
+            }
+        }
+
+        function draw() {
+            ctx.fillStyle = COLOR_BG; ctx.fillRect(0, 0, WIDTH, HEIGHT);
+            const projected = body.getVertices().map(v => project(v.x, v.y, v.z));
+            const facesToDraw = [];
+            for (let i = 0; i < D6_FACES.length; i++) {
+                const pVerts = D6_FACES[i].map(idx => projected[idx]);
+                if (pVerts.some(p => p === null)) continue;
+                const avgZ = pVerts.reduce((sum, p) => sum + p.z, 0) / pVerts.length;
+                facesToDraw.push({ z: avgZ, verts: pVerts, faceIndex: i });
+            }
+            facesToDraw.sort((a, b) => b.z - a.z);
+            for (let face of facesToDraw) {
+                ctx.beginPath();
+                ctx.moveTo(face.verts[0].px, face.verts[0].py);
+                for (let j = 1; j < face.verts.length; j++) ctx.lineTo(face.verts[j].px, face.verts[j].py);
+                ctx.closePath();
+                ctx.fillStyle = COLOR_CUBE; ctx.fill();
+                ctx.strokeStyle = COLOR_WIRE; ctx.lineWidth = 2; ctx.stroke();
+                drawPips(face.verts, face.faceIndex);
+            }
+        }
+
+        // --- LOOP ---
+        let lastTime = 0;
+        const SUBSTEPS = 8;
+
+        function loop(timestamp) {
+            const dt = (timestamp - lastTime) / 1000; lastTime = timestamp;
+            const safeDt = Math.min(dt, 0.1), wasRolling = !body.atRest;
+            if (!body.atRest) {
+                const step = safeDt / SUBSTEPS;
+                for (let i = 0; i < SUBSTEPS; i++) { detectCollisions().forEach(resolveCollision); body.integrate(step); }
+            }
+            if (wasRolling && body.atRest && gameState.waitingForResult) {
+                gameState.waitingForResult = false;
+                setTimeout(() => updateScore(getTopFace()), 500);
+            }
+            draw();
+            document.getElementById('status').innerText = body.atRest ? "Status: REST" : "Status: ROLLING";
+            requestAnimationFrame(loop);
+        }
+
+        requestAnimationFrame(loop);
+
+        // Input
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') { e.preventDefault(); throwDice(); }
+            else if (e.code === 'KeyH') hold();
+            else if (e.code === 'KeyN') newGame();
+        });
+        document.getElementById('rollBtn').addEventListener('click', throwDice);
+        document.getElementById('holdBtn').addEventListener('click', hold);
+        document.getElementById('newGameBtn').addEventListener('click', newGame);
+    </script>
+</body>
+
+</html>
