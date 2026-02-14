@@ -1,11 +1,15 @@
 import { useState, useEffect } from 'react';
 import socketService from './services/socketService';
 import Lobby from './components/Lobby';
+import GameBoard from './components/GameBoard';
 import './App.css';
 
 function App() {
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [inGame, setInGame] = useState(false);
+  const [roomId, setRoomId] = useState<string | null>(null);
+  const [playerId, setPlayerId] = useState<string | null>(null);
 
   useEffect(() => {
     try {
@@ -43,6 +47,18 @@ function App() {
     }
   }, []);
 
+  const handleJoinGame = (newRoomId: string, newPlayerId: string) => {
+    setRoomId(newRoomId);
+    setPlayerId(newPlayerId);
+    setInGame(true);
+  };
+
+  const handleLeaveGame = () => {
+    setInGame(false);
+    setRoomId(null);
+    setPlayerId(null);
+  };
+
   if (error) {
     return (
       <div style={{
@@ -62,13 +78,23 @@ function App() {
   }
 
   return (
-    <div className="app" style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}>
-      <div className="connection-status">
-        <div className={`status-indicator ${isConnected ? 'connected' : 'disconnected'}`} />
-        <span>{isConnected ? 'Connected' : 'Connecting...'}</span>
-      </div>
+    <div className="app" style={{ minHeight: '100vh', background: inGame ? 'transparent' : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}>
+      {!inGame && (
+        <div className="connection-status">
+          <div className={`status-indicator ${isConnected ? 'connected' : 'disconnected'}`} />
+          <span>{isConnected ? 'Connected' : 'Connecting...'}</span>
+        </div>
+      )}
 
-      <Lobby />
+      {inGame && roomId && playerId ? (
+        <GameBoard
+          roomId={roomId}
+          playerId={playerId}
+          onLeaveRoom={handleLeaveGame}
+        />
+      ) : (
+        <Lobby onJoinGame={handleJoinGame} />
+      )}
     </div>
   );
 }

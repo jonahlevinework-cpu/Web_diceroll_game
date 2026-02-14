@@ -9,6 +9,7 @@ export enum ClientMessageType {
     ROLL_DICE = 'ROLL_DICE',
     HOLD = 'HOLD',
     NEW_GAME = 'NEW_GAME',
+    GET_ROOM_STATE = 'GET_ROOM_STATE',
     LEAVE_ROOM = 'LEAVE_ROOM'
 }
 

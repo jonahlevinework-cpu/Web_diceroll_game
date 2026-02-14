@@ -36,8 +36,8 @@ export function initializeSocketHandlers(io: Server): void {
         });
 
         // Handle dice roll
-        socket.on(ClientMessageType.ROLL_DICE, () => {
-            handleRollDice(io, socket);
+        socket.on(ClientMessageType.ROLL_DICE, (payload: any) => {
+            handleRollDice(io, socket, payload);
         });
 
         // Handle hold action
@@ -48,6 +48,11 @@ export function initializeSocketHandlers(io: Server): void {
         // Handle new game request
         socket.on(ClientMessageType.NEW_GAME, () => {
             handleNewGame(io, socket);
+        });
+
+        // Handle get room state request
+        socket.on(ClientMessageType.GET_ROOM_STATE, () => {
+            handleGetRoomState(io, socket);
         });
 
         // Handle disconnect
@@ -169,7 +174,7 @@ function handleJoinRoom(_io: Server, socket: CustomSocket, data: { roomId: strin
 /**
  * Handle dice roll
  */
-function handleRollDice(_io: Server, socket: CustomSocket): void {
+function handleRollDice(_io: Server, socket: CustomSocket, payload: any = {}): void {
     try {
         const { roomId, playerId } = socket;
 
@@ -196,8 +201,10 @@ function handleRollDice(_io: Server, socket: CustomSocket): void {
             return;
         }
 
-        // Roll the dice (server-authoritative)
-        const roll = room.gameState.rollDice();
+        // Roll the dice - use client-provided roll for visual consistency
+        // Server still validates and processes the score
+        const { roll: clientRoll } = payload;
+        const roll = (clientRoll >= 1 && clientRoll <= 6) ? clientRoll : Math.floor(Math.random() * 6) + 1;
         const result = room.gameState.updateScore(currentPlayer, roll);
 
         logger.debug(`Player ${currentPlayer.name} rolled ${roll} in room ${roomId}`);
@@ -340,6 +347,43 @@ function handleNewGame(_io: Server, socket: CustomSocket): void {
         logger.error('Error starting new game:', error);
         socket.emit(ServerMessageType.ERROR, createMessage(ServerMessageType.ERROR, {
             message: 'Failed to start new game'
+        }));
+    }
+}
+
+/**
+ * Handle get room state request
+ */
+function handleGetRoomState(_io: Server, socket: CustomSocket): void {
+    try {
+        const { roomId } = socket;
+
+        if (!roomId) {
+            socket.emit(ServerMessageType.ERROR, createMessage(ServerMessageType.ERROR, {
+                message: 'Not in a room'
+            }));
+            return;
+        }
+
+        const room = rooms.get(roomId);
+        if (!room) {
+            socket.emit(ServerMessageType.ERROR, createMessage(ServerMessageType.ERROR, {
+                message: 'Room not found'
+            }));
+            return;
+        }
+
+        logger.debug(`Sending room state to client in room ${roomId}`);
+
+        // Send current room state to requesting client
+        socket.emit(ServerMessageType.GAME_STATE_UPDATE, createMessage(ServerMessageType.GAME_STATE_UPDATE, {
+            roomState: room.getState()
+        }));
+
+    } catch (error) {
+        logger.error('Error getting room state:', error);
+        socket.emit(ServerMessageType.ERROR, createMessage(ServerMessageType.ERROR, {
+            message: 'Failed to get room state'
         }));
     }
 }

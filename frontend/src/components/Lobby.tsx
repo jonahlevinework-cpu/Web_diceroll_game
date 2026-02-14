@@ -3,7 +3,11 @@ import socketService from '../services/socketService';
 import type { RoomState, PlayerData } from '../types/game';
 import './Lobby.css';
 
-function Lobby() {
+interface LobbyProps {
+    onJoinGame?: (roomId: string, playerId: string) => void;
+}
+
+function Lobby({ onJoinGame }: LobbyProps) {
     const [playerName, setPlayerName] = useState('');
     const [roomId, setRoomId] = useState('');
     const [currentRoomId, setCurrentRoomId] = useState<string | null>(null);
@@ -29,6 +33,11 @@ function Lobby() {
             setPlayerId(data.payload.playerId);
             setPlayers(data.payload.roomState.players);
             setIsCreating(false);
+
+            // Notify parent to transition to game board
+            if (onJoinGame) {
+                onJoinGame(data.payload.roomId, data.payload.playerId);
+            }
         });
 
         // Listen for game state updates
@@ -72,6 +81,11 @@ function Lobby() {
             setPlayerId(data.payload.playerId);
             setPlayers(data.payload.roomState.players);
             setIsJoining(false);
+
+            // Notify parent to transition to game board
+            if (onJoinGame) {
+                onJoinGame(roomId, data.payload.playerId);
+            }
         });
 
         // Listen for game state updates

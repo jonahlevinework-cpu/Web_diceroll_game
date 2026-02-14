@@ -1,0 +1,398 @@
+import { useEffect, useRef, useState } from 'react';
+import { RigidBody, D6_FACES, D6_VERTICES, FACE_VALUES } from '../utils/dicePhysics';
+import type { Vec3 } from '../utils/dicePhysics';
+
+interface DiceCanvasProps {
+    onRollComplete?: (value: number) => void;
+    triggerRoll?: number; // Change this prop to trigger a roll
+}
+
+interface ProjectedPoint {
+    px: number;
+    py: number;
+    z: number;
+}
+
+const CANVAS_WIDTH = 600;
+const CANVAS_HEIGHT = 400;
+const CENTER_X = CANVAS_WIDTH / 2;
+const CENTER_Y = CANVAS_HEIGHT / 2;
+const SUBSTEPS = 8;
+
+const COLOR_BG = 'linear-gradient(135deg, #2d1b4e 0%, #1a0f2e 100%)'; // Match app theme
+const COLOR_CUBE = '#00ffc8'; // Cyan dice
+const COLOR_WIRE = '#000000'; // Black edges
+const COLOR_PIP = '#1e3c78';  // Dark blue pips
+
+export function DiceCanvas({ triggerRoll, onRollComplete }: DiceCanvasProps) {
+    // Camera controls for debugging
+    const [camDistance, setCamDistance] = useState(4);
+    const [camHeight, setCamHeight] = useState(2.5);
+    const [camTilt, setCamTilt] = useState(0.15);
+
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+    const bodyRef = useRef<RigidBody>(new RigidBody());
+    const animationRef = useRef<number>();
+    const lastTimeRef = useRef<number>(0);
+    const waitingForResultRef = useRef<boolean>(false);
+    const rollStartTimeRef = useRef<number>(0);
+    const timeoutIdRef = useRef<number>();
+
+    // Project 3D point to 2D canvas
+    const project = (x: number, y: number, z: number): ProjectedPoint | null => {
+        const scale = 120;
+        const camX = 0;
+        const camY = camHeight;
+        const camZ = camDistance;
+
+        // Camera tilt - controlled by slider
+        const tiltAngle = camTilt;
+        const cosT = Math.cos(tiltAngle);
+        const sinT = Math.sin(tiltAngle);
+
+        const dx = x - camX;
+        let dy = y - camY;
+        let dz = z - camZ;
+
+        // Apply tilt rotation around X-axis
+        const dy2 = dy * cosT - dz * sinT;
+        const dz2 = dy * sinT + dz * cosT;
+        dy = dy2;
+        dz = dz2;
+
+        if (dz > -0.1) return null;
+
+        const px = CANVAS_WIDTH / 2 + (dx / -dz) * scale;
+        const py = CANVAS_HEIGHT / 2 - (dy / -dz) * scale;  // Fixed: negative sign for correct orientation
+
+        return { px, py, z: dz };
+    };
+
+    // Draw pips on a dice face
+    const drawPips = (
+        ctx: CanvasRenderingContext2D,
+        verts: ProjectedPoint[],
+        faceIndex: number
+    ) => {
+        const value = FACE_VALUES[faceIndex] || 1;
+        let dots: number[][] = [];
+
+        if (value === 1) dots = [[0.5, 0.5]];
+        else if (value === 2) dots = [[0.2, 0.2], [0.8, 0.8]];
+        else if (value === 3) dots = [[0.2, 0.2], [0.5, 0.5], [0.8, 0.8]];
+        else if (value === 4) dots = [[0.2, 0.2], [0.8, 0.2], [0.2, 0.8], [0.8, 0.8]];
+        else if (value === 5) dots = [[0.2, 0.2], [0.8, 0.2], [0.5, 0.5], [0.2, 0.8], [0.8, 0.8]];
+        else if (value === 6) dots = [[0.25, 0.2], [0.25, 0.5], [0.25, 0.8], [0.75, 0.2], [0.75, 0.5], [0.75, 0.8]];
+
+        const dx = verts[1].px - verts[0].px;
+        const dy = verts[1].py - verts[0].py;
+        const radius = Math.max(3, Math.sqrt(dx * dx + dy * dy) * 0.15);
+
+        ctx.fillStyle = COLOR_PIP;
+        for (const [u, v] of dots) {
+            const v0 = verts[0], v1 = verts[1], v2 = verts[2], v3 = verts[3];
+            const c1 = (1 - u) * (1 - v);
+            const c2 = u * (1 - v);
+            const c3 = u * v;
+            const c4 = (1 - u) * v;
+            const px = v0.px * c1 + v1.px * c2 + v2.px * c3 + v3.px * c4;
+            const py = v0.py * c1 + v1.py * c2 + v2.py * c3 + v3.py * c4;
+
+            ctx.beginPath();
+            ctx.arc(px, py, radius, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    };
+
+    // Render the dice
+    // Draw function - needs to be defined inside component to access camera state
+    const draw = (ctx: CanvasRenderingContext2D, body: RigidBody) => {
+        // Create gradient background
+        const grad = ctx.createLinearGradient(0, 0, 0, CANVAS_HEIGHT);
+        grad.addColorStop(0, '#2d1b4e');
+        grad.addColorStop(1, '#1a0f2e');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+        // Project function defined here to use current camera state
+        const projectPoint = (x: number, y: number, z: number): ProjectedPoint | null => {
+            const scale = 120;
+            const camX = 0;
+            const camY = camHeight;
+            const camZ = camDistance;
+
+            const tiltAngle = camTilt;
+            const cosT = Math.cos(tiltAngle);
+            const sinT = Math.sin(tiltAngle);
+
+            const dx = x - camX;
+            let dy = y - camY;
+            let dz = z - camZ;
+
+            const dy2 = dy * cosT - dz * sinT;
+            const dz2 = dy * sinT + dz * cosT;
+            dy = dy2;
+            dz = dz2;
+
+            if (dz > -0.1) return null;
+
+            const px = CANVAS_WIDTH / 2 + (dx / -dz) * scale;
+            const py = CANVAS_HEIGHT / 2 - (dy / -dz) * scale;
+
+            return { px, py, z: dz };
+        };
+
+        // Draw floor plane
+        const floorSize = 4;
+        const floorCorners = [
+            { x: -floorSize, y: 0, z: -floorSize },
+            { x: floorSize, y: 0, z: -floorSize },
+            { x: floorSize, y: 0, z: floorSize },
+            { x: -floorSize, y: 0, z: floorSize }
+        ];
+
+        const floorProjected = floorCorners.map(c => projectPoint(c.x, c.y, c.z));
+        if (floorProjected.every(p => p !== null)) {
+            ctx.beginPath();
+            ctx.moveTo(floorProjected[0]!.px, floorProjected[0]!.py);
+            for (let i = 1; i < floorProjected.length; i++) {
+                ctx.lineTo(floorProjected[i]!.px, floorProjected[i]!.py);
+            }
+            ctx.closePath();
+
+            // White floor for visibility
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+            ctx.fill();
+            ctx.strokeStyle = '#000000';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        }
+
+        // Draw dice (using projectPoint instead of project)
+        // ... rest of dice drawing code follows
+    };
+    // Draw gradient background matching theme
+    const gradient = ctx.createLinearGradient(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+    gradient.addColorStop(0, '#2d1b4e');
+    gradient.addColorStop(1, '#1a0f2e');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+    // Draw floor plane for visual context
+    const floorSize = 5;
+    const floorCorners = [
+        { x: -floorSize, y: 0, z: -floorSize },
+        { x: floorSize, y: 0, z: -floorSize },
+        { x: floorSize, y: 0, z: floorSize },
+        { x: -floorSize, y: 0, z: floorSize }
+    ];
+
+    const floorProjected = floorCorners.map(c => project(c.x, c.y, c.z));
+    if (floorProjected.every(p => p !== null)) {
+        ctx.beginPath();
+        ctx.moveTo(floorProjected[0]!.px, floorProjected[0]!.py);
+        for (let i = 1; i < floorProjected.length; i++) {
+            ctx.lineTo(floorProjected[i]!.px, floorProjected[i]!.py);
+        }
+        ctx.closePath();
+
+        // TEST: Bright white floor for visibility
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+        ctx.fill();
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+    }
+
+    const projected = body.getVertices().map((v: Vec3) => project(v.x, v.y, v.z));
+    const facesToDraw: { z: number; verts: ProjectedPoint[]; faceIndex: number }[] = [];
+
+    for (let i = 0; i < D6_FACES.length; i++) {
+        const pVerts = D6_FACES[i].map(idx => projected[idx]);
+        if (pVerts.some(p => p === null)) continue;
+
+        const avgZ = pVerts.reduce((sum, p) => sum + (p?.z || 0), 0) / pVerts.length;
+        facesToDraw.push({ z: avgZ, verts: pVerts as ProjectedPoint[], faceIndex: i });
+    }
+
+    facesToDraw.sort((a, b) => b.z - a.z);
+
+    for (const face of facesToDraw) {
+        ctx.beginPath();
+        ctx.moveTo(face.verts[0].px, face.verts[0].py);
+        for (let j = 1; j < face.verts.length; j++) {
+            ctx.lineTo(face.verts[j].px, face.verts[j].py);
+        }
+        ctx.closePath();
+
+        ctx.fillStyle = COLOR_CUBE;
+        ctx.fill();
+        ctx.strokeStyle = COLOR_WIRE;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        drawPips(ctx, face.verts, face.faceIndex);
+    }
+};
+
+// Animation loop
+const loop = (timestamp: number) => {
+    const dt = (timestamp - lastTimeRef.current) / 1000;
+    lastTimeRef.current = timestamp;
+    const safeDt = Math.min(dt, 0.1);
+
+    const body = bodyRef.current;
+    const wasRolling = !body.atRest;
+
+    if (!body.atRest) {
+        const step = safeDt / SUBSTEPS;
+        for (let i = 0; i < SUBSTEPS; i++) {
+            const collisions = body.detectCollisions();
+            collisions.forEach(col => body.resolveCollision(col));
+            body.integrate(step);
+        }
+    }
+
+    // Dice just stopped rolling
+    if (wasRolling && body.atRest && waitingForResultRef.current) {
+        waitingForResultRef.current = false;
+        // Clear timeout since we settled naturally
+        if (timeoutIdRef.current) {
+            clearTimeout(timeoutIdRef.current);
+        }
+        const topFace = body.getTopFace();
+        setTimeout(() => {
+            if (onRollComplete) {
+                onRollComplete(topFace);
+            }
+        }, 500);
+    }
+
+    const canvas = canvasRef.current;
+    if (canvas) {
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+            draw(ctx, body);
+        }
+    }
+
+    animationRef.current = requestAnimationFrame(loop);
+};
+
+// Trigger roll when prop changes
+useEffect(() => {
+    if (triggerRoll && triggerRoll > 0) {
+        // Clear any existing timeout
+        if (timeoutIdRef.current) {
+            clearTimeout(timeoutIdRef.current);
+        }
+
+        bodyRef.current.throwDice();
+        waitingForResultRef.current = true;
+        rollStartTimeRef.current = Date.now();
+
+        // Hard timeout: force result after 5 seconds
+        timeoutIdRef.current = setTimeout(() => {
+            if (waitingForResultRef.current) {
+                console.log('⏰ Dice timeout - forcing settlement');
+                waitingForResultRef.current = false;
+                const body = bodyRef.current;
+                body.atRest = true; // Force rest state
+                const topFace = body.getTopFace();
+                if (onRollComplete) {
+                    onRollComplete(topFace);
+                }
+            }
+        }, 5000);
+    }
+}, [triggerRoll, onRollComplete]);
+
+// Start animation loop
+useEffect(() => {
+    animationRef.current = requestAnimationFrame(loop);
+
+    return () => {
+        if (animationRef.current) {
+            cancelAnimationFrame(animationRef.current);
+        }
+        if (timeoutIdRef.current) {
+            clearTimeout(timeoutIdRef.current);
+        }
+    };
+}, []);
+
+return (
+    <div style={{ position: 'relative' }}>
+        {/* Camera Debug Controls */}
+        <div style={{
+            position: 'absolute',
+            top: '10px',
+            left: '10px',
+            background: 'rgba(0, 0, 0, 0.7)',
+            padding: '10px',
+            borderRadius: '8px',
+            color: 'white',
+            fontSize: '12px',
+            zIndex: 10,
+            minWidth: '200px'
+        }}>
+            <div style={{ marginBottom: '8px', fontWeight: 'bold' }}>📷 Camera Controls</div>
+            <div style={{ marginBottom: '6px' }}>
+                <label style={{ display: 'block', marginBottom: '2px' }}>
+                    Distance: {camDistance.toFixed(1)}
+                </label>
+                <input
+                    type="range"
+                    min="2"
+                    max="10"
+                    step="0.5"
+                    value={camDistance}
+                    onChange={(e) => setCamDistance(parseFloat(e.target.value))}
+                    style={{ width: '100%' }}
+                />
+            </div>
+            <div style={{ marginBottom: '6px' }}>
+                <label style={{ display: 'block', marginBottom: '2px' }}>
+                    Height: {camHeight.toFixed(1)}
+                </label>
+                <input
+                    type="range"
+                    min="1"
+                    max="5"
+                    step="0.1"
+                    value={camHeight}
+                    onChange={(e) => setCamHeight(parseFloat(e.target.value))}
+                    style={{ width: '100%' }}
+                />
+            </div>
+            <div>
+                <label style={{ display: 'block', marginBottom: '2px' }}>
+                    Tilt: {camTilt.toFixed(2)}
+                </label>
+                <input
+                    type="range"
+                    min="-0.5"
+                    max="0.5"
+                    step="0.05"
+                    value={camTilt}
+                    onChange={(e) => setCamTilt(parseFloat(e.target.value))}
+                    style={{ width: '100%' }}
+                />
+            </div>
+        </div>
+
+        <canvas
+            ref={canvasRef}
+            width={CANVAS_WIDTH}
+            height={CANVAS_HEIGHT}
+            style={{
+                border: '2px solid #222',
+                borderRadius: '8px',
+                background: COLOR_BG
+            }}
+        />
+    </div>
+);
+}
+
+export default DiceCanvas;

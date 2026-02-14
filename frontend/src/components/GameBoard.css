@@ -1,0 +1,388 @@
+.game-board {
+    min-height: 100vh;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    padding: 20px;
+    color: white;
+}
+
+.game-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px;
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+    border-radius: 12px;
+    margin-bottom: 20px;
+}
+
+.room-info h2 {
+    margin: 0 0 5px 0;
+    font-size: 24px;
+}
+
+.room-id {
+    font-size: 14px;
+    opacity: 0.8;
+}
+
+.btn-leave {
+    padding: 10px 20px;
+    background: rgba(255, 68, 68, 0.2);
+    border: 2px solid #ff4444;
+    color: white;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+    transition: all 0.2s;
+}
+
+.btn-leave:hover {
+    background: #ff4444;
+    transform: translateY(-2px);
+}
+
+.game-content {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    gap: 20px;
+}
+
+/* Players Panel */
+.players-panel {
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+    border-radius: 12px;
+    padding: 20px;
+    height: fit-content;
+}
+
+.players-panel h3 {
+    margin: 0 0 15px 0;
+    font-size: 18px;
+}
+
+.players-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.player-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 8px;
+    border: 2px solid transparent;
+    transition: all 0.3s;
+}
+
+.player-item.active-turn {
+    border-color: #00ffc8;
+    background: rgba(0, 255, 200, 0.1);
+    box-shadow: 0 0 20px rgba(0, 255, 200, 0.3);
+    animation: pulse 2s infinite;
+}
+
+.player-item.is-you {
+    border-color: #ffaa44;
+}
+
+.player-avatar {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #00ffc8, #667eea);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    font-weight: bold;
+}
+
+.player-details {
+    flex: 1;
+}
+
+.player-name {
+    font-weight: 600;
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.you-badge {
+    background: #ffaa44;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: bold;
+}
+
+.turn-badge {
+    color: #00ffc8;
+    font-size: 12px;
+    font-weight: bold;
+}
+
+.player-score-display {
+    font-size: 14px;
+    margin-bottom: 4px;
+}
+
+.score-label {
+    opacity: 0.7;
+    margin-right: 4px;
+}
+
+.score-value {
+    font-weight: bold;
+    font-size: 16px;
+    color: #00ffc8;
+}
+
+.player-status-badge {
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    display: inline-block;
+}
+
+.status-active {
+    background: rgba(0, 255, 200, 0.2);
+    color: #00ffc8;
+}
+
+.status-bust {
+    background: rgba(255, 68, 68, 0.2);
+    color: #ff4444;
+}
+
+.status-won {
+    background: rgba(68, 255, 68, 0.2);
+    color: #44ff44;
+}
+
+.status-held {
+    background: rgba(255, 170, 68, 0.2);
+    color: #ffaa44;
+}
+
+/* Main Game Area */
+.game-main {
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+    border-radius: 12px;
+    padding: 30px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+}
+
+.dice-area {
+    position: relative;
+}
+
+.roll-result {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: rgba(0, 255, 200, 0.9);
+    color: #0a0a0f;
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-weight: bold;
+    font-size: 18px;
+    animation: fadeInScale 0.3s;
+}
+
+.game-info {
+    text-align: center;
+    min-height: 60px;
+}
+
+.game-message {
+    font-size: 18px;
+    background: rgba(255, 255, 255, 0.1);
+    padding: 12px 24px;
+    border-radius: 8px;
+    margin-bottom: 10px;
+}
+
+.turn-indicator {
+    font-size: 20px;
+    font-weight: bold;
+    color: #00ffc8;
+    animation: pulse 2s infinite;
+}
+
+.game-controls {
+    display: flex;
+    gap: 15px;
+}
+
+.btn-roll,
+.btn-hold {
+    padding: 15px 40px;
+    font-size: 18px;
+    font-weight: bold;
+    border-radius: 8px;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-roll {
+    background: linear-gradient(135deg, #00ffc8, #00cc99);
+    color: #0a0a0f;
+}
+
+.btn-roll:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 20px rgba(0, 255, 200, 0.4);
+}
+
+.btn-hold {
+    background: linear-gradient(135deg, #ffaa44, #ff8800);
+    color: white;
+}
+
+.btn-hold:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 20px rgba(255, 170, 68, 0.4);
+}
+
+.btn-roll:disabled,
+.btn-hold:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.game-rules {
+    background: rgba(255, 255, 255, 0.05);
+    padding: 15px;
+    border-radius: 8px;
+    max-width: 600px;
+}
+
+.game-rules h4 {
+    margin: 0 0 10px 0;
+    font-size: 16px;
+}
+
+.game-rules ul {
+    margin: 0;
+    padding-left: 20px;
+    font-size: 14px;
+    line-height: 1.6;
+}
+
+.game-rules li {
+    margin-bottom: 5px;
+}
+
+/* Game Over Screen */
+.game-over-screen {
+    text-align: center;
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+    border-radius: 12px;
+    padding: 40px;
+    max-width: 600px;
+    margin: 100px auto;
+}
+
+.game-over-screen h1 {
+    font-size: 48px;
+    margin: 0 0 20px 0;
+}
+
+.winner-name {
+    font-size: 36px;
+    color: #00ffc8;
+    margin: 0 0 30px 0;
+}
+
+.final-scores {
+    background: rgba(255, 255, 255, 0.05);
+    padding: 20px;
+    border-radius: 8px;
+    margin-bottom: 30px;
+}
+
+.final-scores h3 {
+    margin: 0 0 15px 0;
+    font-size: 20px;
+}
+
+.final-score-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 12px;
+    margin-bottom: 8px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 6px;
+    border: 2px solid transparent;
+}
+
+.final-score-item.winner {
+    border-color: #00ffc8;
+    background: rgba(0, 255, 200, 0.1);
+}
+
+.final-score-item .player-name {
+    font-weight: 600;
+}
+
+.final-score-item .player-score {
+    font-size: 20px;
+    font-weight: bold;
+    color: #00ffc8;
+}
+
+/* Animations */
+@keyframes pulse {
+
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.7;
+    }
+}
+
+@keyframes fadeInScale {
+    from {
+        opacity: 0;
+        transform: scale(0.8);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .game-content {
+        grid-template-columns: 1fr;
+    }
+
+    .game-controls {
+        flex-direction: column;
+        width: 100%;
+    }
+
+    .btn-roll,
+    .btn-hold {
+        width: 100%;
+    }
+}

@@ -3,6 +3,7 @@
  */
 
 import { io, Socket } from 'socket.io-client';
+import type { Message, RoomState } from '../types/game';
 
 const SOCKET_URL = 'http://localhost:3000';
 
@@ -60,14 +61,38 @@ class SocketService {
         this.socket.on('GAME_STATE_UPDATE', callback);
     }
 
-    onPlayerLeft(callback: (data: any) => void): void {
-        if (!this.socket) return;
-        this.socket.on('PLAYER_LEFT', callback);
+    onPlayerLeft(callback: (data: Message<{ playerName: string; roomState: RoomState }>) => void) {
+        this.socket?.on('PLAYER_LEFT', callback);
     }
 
-    onError(callback: (data: any) => void): void {
-        if (!this.socket) return;
-        this.socket.on('ERROR', callback);
+    onError(callback: (data: Message<{ message: string }>) => void) {
+        this.socket?.on('ERROR', callback);
+    }
+
+    // Game actions
+    rollDice(roll?: number) {
+        this.socket?.emit('ROLL_DICE', { roll });
+    }
+
+    hold() {
+        this.socket?.emit('HOLD', {});
+    }
+
+    getRoomState() {
+        this.socket?.emit('GET_ROOM_STATE', {});
+    }
+
+    // Game event listeners
+    onDiceRolled(callback: (data: Message<{ playerId: string; playerName: string; roll: number; newScore: number; status: string; message: string }>) => void) {
+        this.socket?.on('DICE_ROLLED', callback);
+    }
+
+    onTurnChanged(callback: (data: Message<{ currentTurn: string; roomState: RoomState }>) => void) {
+        this.socket?.on('TURN_CHANGED', callback);
+    }
+
+    onGameOver(callback: (data: Message<{ winner: string | null; roomState: RoomState; message: string }>) => void) {
+        this.socket?.on('GAME_OVER', callback);
     }
 
     // Remove event listeners
